@@ -11,8 +11,40 @@ struct DayRecord: Codable, Identifiable, Equatable {
     let food: Bool
     let prep: Bool
     let workout: Bool
+    var foodEnabled: Bool = true
+    var workoutEnabled: Bool = true
 
-    var perfect: Bool { jobs >= 10 && leetcode >= 5 && food && prep && workout }
+    enum CodingKeys: String, CodingKey {
+        case date, jobs, leetcode, food, prep, workout, foodEnabled, workoutEnabled
+    }
+
+    init(date: String, jobs: Int, leetcode: Int, food: Bool, prep: Bool, workout: Bool,
+         foodEnabled: Bool = true, workoutEnabled: Bool = true) {
+        self.date = date
+        self.jobs = jobs
+        self.leetcode = leetcode
+        self.food = food
+        self.prep = prep
+        self.workout = workout
+        self.foodEnabled = foodEnabled
+        self.workoutEnabled = workoutEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date = try c.decode(String.self, forKey: .date)
+        jobs = try c.decode(Int.self, forKey: .jobs)
+        leetcode = try c.decode(Int.self, forKey: .leetcode)
+        food = try c.decode(Bool.self, forKey: .food)
+        prep = try c.decode(Bool.self, forKey: .prep)
+        workout = try c.decode(Bool.self, forKey: .workout)
+        foodEnabled = try c.decodeIfPresent(Bool.self, forKey: .foodEnabled) ?? true
+        workoutEnabled = try c.decodeIfPresent(Bool.self, forKey: .workoutEnabled) ?? true
+    }
+
+    var perfect: Bool {
+        jobs >= 10 && leetcode >= 5 && prep && (!foodEnabled || food) && (!workoutEnabled || workout)
+    }
 }
 
 // MARK: - Persistent daily store
@@ -23,13 +55,16 @@ final class DailyStore: ObservableObject {
     @Published var loggedFood: Bool { didSet { defaults.set(loggedFood, forKey: Keys.food); evaluate() } }
     @Published var interviewPrep: Bool { didSet { defaults.set(interviewPrep, forKey: Keys.prep); evaluate() } }
     @Published var workedOut: Bool { didSet { defaults.set(workedOut, forKey: Keys.workout); evaluate() } }
+    @Published var foodEnabled: Bool { didSet { defaults.set(foodEnabled, forKey: Keys.foodEnabled); evaluate() } }
+    @Published var workoutEnabled: Bool { didSet { defaults.set(workoutEnabled, forKey: Keys.workoutEnabled); evaluate() } }
     @Published var history: [DayRecord] = []
 
     let jobsTarget = 10
     let leetTarget = 5
 
     var allComplete: Bool {
-        jobsApplied >= jobsTarget && leetcodeSolved >= leetTarget && loggedFood && interviewPrep && workedOut
+        jobsApplied >= jobsTarget && leetcodeSolved >= leetTarget && interviewPrep
+            && (!foodEnabled || loggedFood) && (!workoutEnabled || workedOut)
     }
 
     var onAllComplete: (() -> Void)?
@@ -42,6 +77,8 @@ final class DailyStore: ObservableObject {
         static let food = "loggedFood"
         static let prep = "interviewPrep"
         static let workout = "workedOut"
+        static let foodEnabled = "foodEnabled"
+        static let workoutEnabled = "workoutEnabled"
         static let lastReset = "lastResetDate"
         static let celebratedDate = "celebratedDate"
     }
@@ -55,11 +92,15 @@ final class DailyStore: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         historyURL = dir.appendingPathComponent("history.json")
 
+        defaults.register(defaults: [Keys.foodEnabled: true, Keys.workoutEnabled: true])
+
         jobsApplied = defaults.integer(forKey: Keys.jobs)
         leetcodeSolved = defaults.integer(forKey: Keys.leet)
         loggedFood = defaults.bool(forKey: Keys.food)
         interviewPrep = defaults.bool(forKey: Keys.prep)
         workedOut = defaults.bool(forKey: Keys.workout)
+        foodEnabled = defaults.bool(forKey: Keys.foodEnabled)
+        workoutEnabled = defaults.bool(forKey: Keys.workoutEnabled)
 
         loadHistory()
         checkDailyReset()
@@ -90,7 +131,8 @@ final class DailyStore: ObservableObject {
 
         if let last = last {
             let record = DayRecord(date: last, jobs: jobsApplied, leetcode: leetcodeSolved,
-                                    food: loggedFood, prep: interviewPrep, workout: workedOut)
+                                    food: loggedFood, prep: interviewPrep, workout: workedOut,
+                                    foodEnabled: foodEnabled, workoutEnabled: workoutEnabled)
             history.removeAll { $0.date == last }
             history.append(record)
             saveHistory()
@@ -101,6 +143,8 @@ final class DailyStore: ObservableObject {
         loggedFood = false
         interviewPrep = false
         workedOut = false
+        foodEnabled = true
+        workoutEnabled = true
         defaults.set(today, forKey: Keys.lastReset)
         defaults.removeObject(forKey: Keys.celebratedDate)
 
@@ -115,6 +159,8 @@ final class DailyStore: ObservableObject {
         loggedFood = false
         interviewPrep = false
         workedOut = false
+        foodEnabled = true
+        workoutEnabled = true
         defaults.set(Self.todayString, forKey: Keys.lastReset)
         defaults.removeObject(forKey: Keys.celebratedDate)
     }
@@ -133,14 +179,15 @@ final class DailyStore: ObservableObject {
     /// Today's live record merged with history for the stats view, newest first.
     var displayRecords: [DayRecord] {
         let today = DayRecord(date: Self.todayString, jobs: jobsApplied, leetcode: leetcodeSolved,
-                               food: loggedFood, prep: interviewPrep, workout: workedOut)
+                               food: loggedFood, prep: interviewPrep, workout: workedOut,
+                               foodEnabled: foodEnabled, workoutEnabled: workoutEnabled)
         return ([today] + history.sorted { $0.date > $1.date })
     }
 
     func exportCSV() -> URL? {
-        var csv = "date,jobs_applied,leetcode_solved,logged_food,interview_prep,workout,perfect_day\n"
+        var csv = "date,jobs_applied,leetcode_solved,logged_food,food_enabled,interview_prep,workout,workout_enabled,perfect_day\n"
         for r in displayRecords.sorted(by: { $0.date < $1.date }) {
-            csv += "\(r.date),\(r.jobs),\(r.leetcode),\(r.food),\(r.prep),\(r.workout),\(r.perfect)\n"
+            csv += "\(r.date),\(r.jobs),\(r.leetcode),\(r.food),\(r.foodEnabled),\(r.prep),\(r.workout),\(r.workoutEnabled),\(r.perfect)\n"
         }
         let url = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first!
             .appendingPathComponent("DailyGrindStats.csv")
@@ -236,6 +283,56 @@ struct ToggleRow: View {
     }
 }
 
+/// Small pill switch used to enable/disable an optional habit for the day.
+struct MiniSwitch: View {
+    @Binding var isOn: Bool
+    var body: some View {
+        Button(action: { isOn.toggle() }) {
+            Capsule()
+                .fill(isOn ? Color.green : Color.gray.opacity(0.35))
+                .frame(width: 28, height: 15)
+                .overlay(
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 11, height: 11)
+                        .offset(x: isOn ? 6.5 : -6.5)
+                        .shadow(radius: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A checkbox row for a habit that can itself be switched on/off for the day.
+/// When disabled, the checkbox is dimmed and not required for "all complete".
+struct HabitRow: View {
+    let icon: String
+    let title: String
+    @Binding var checked: Bool
+    @Binding var enabled: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: { if enabled { checked.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: (checked && enabled) ? "checkmark.square.fill" : "square")
+                        .foregroundColor(enabled ? (checked ? .green : .secondary) : .secondary.opacity(0.3))
+                    Text("\(icon) \(title)")
+                        .font(.system(size: 12))
+                        .strikethrough(checked && enabled, color: .secondary)
+                        .foregroundColor(enabled ? (checked ? .secondary : .primary) : .secondary.opacity(0.4))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+
+            Spacer()
+
+            MiniSwitch(isOn: $enabled)
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var store: DailyStore
     var onStats: () -> Void
@@ -268,9 +365,9 @@ struct ContentView: View {
             Divider().padding(.vertical, 2)
 
             VStack(alignment: .leading, spacing: 6) {
-                ToggleRow(icon: "🍽️", title: "Log food", checked: $store.loggedFood)
+                HabitRow(icon: "🍽️", title: "Log food", checked: $store.loggedFood, enabled: $store.foodEnabled)
                 ToggleRow(icon: "📚", title: "Interview prep", checked: $store.interviewPrep)
-                ToggleRow(icon: "🏋️", title: "Workout", checked: $store.workedOut)
+                HabitRow(icon: "🏋️", title: "Workout", checked: $store.workedOut, enabled: $store.workoutEnabled)
             }
 
             if store.allComplete {
@@ -345,6 +442,15 @@ struct StatsView: View {
         return count
     }
 
+    @ViewBuilder
+    func habitCell(enabled: Bool, done: Bool) -> some View {
+        if enabled {
+            Image(systemName: done ? "checkmark" : "minus")
+        } else {
+            Text("off").font(.system(size: 9)).foregroundColor(.secondary.opacity(0.6))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("📊 Daily Grind — Stats")
@@ -391,9 +497,9 @@ struct StatsView: View {
                             Text(r.date).frame(width: 90, alignment: .leading)
                             Text("\(r.jobs)/\(store.jobsTarget)").frame(width: 50)
                             Text("\(r.leetcode)/\(store.leetTarget)").frame(width: 70)
-                            Image(systemName: r.food ? "checkmark" : "minus").frame(width: 50)
+                            habitCell(enabled: r.foodEnabled, done: r.food).frame(width: 50)
                             Image(systemName: r.prep ? "checkmark" : "minus").frame(width: 50)
-                            Image(systemName: r.workout ? "checkmark" : "minus").frame(width: 60)
+                            habitCell(enabled: r.workoutEnabled, done: r.workout).frame(width: 60)
                             Spacer()
                         }
                         .font(.system(size: 11))
