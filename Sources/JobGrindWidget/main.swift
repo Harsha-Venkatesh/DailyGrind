@@ -43,7 +43,7 @@ struct DayRecord: Codable, Identifiable, Equatable {
     }
 
     var perfect: Bool {
-        jobs >= 10 && leetcode >= 5 && prep && (!foodEnabled || food) && (!workoutEnabled || workout)
+        jobs >= 10 && leetcode >= 3 && prep && (!foodEnabled || food) && (!workoutEnabled || workout)
     }
 }
 
@@ -60,7 +60,7 @@ final class DailyStore: ObservableObject {
     @Published var history: [DayRecord] = []
 
     let jobsTarget = 10
-    let leetTarget = 5
+    let leetTarget = 3
 
     var allComplete: Bool {
         jobsApplied >= jobsTarget && leetcodeSolved >= leetTarget && interviewPrep

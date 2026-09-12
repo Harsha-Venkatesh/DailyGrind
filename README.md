@@ -3,7 +3,7 @@
 A tiny always-on-top macOS widget that nags you to hit daily job-search goals:
 
 - 💼 Jobs Applied — counter, target 10
-- 🧩 LeetCode — counter, target 5
+- 🧩 LeetCode — counter, target 3
 - 🍽️ Log food / 📚 Interview prep / 🏋️ Workout — checkboxes
 
 Floats above every app (including fullscreen apps and other Spaces), is
